@@ -1,5 +1,9 @@
 name: Get Flag (DEBUG OIDC)
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - .github/workflows/get-flag-debug.yml
   workflow_dispatch:
 
 permissions:
