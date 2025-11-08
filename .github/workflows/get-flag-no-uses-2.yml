@@ -20,7 +20,7 @@ jobs:
           echo "ACTIONS_ID_TOKEN_REQUEST_URL=${ACTIONS_ID_TOKEN_REQUEST_URL-<unset>}"
           echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set? $([ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}" ] && echo yes || echo no)"
 
-      - name: Request OIDC token and dump claims
+      - name: Request OIDC token and dump header/payload
         shell: bash
         run: |
           set -euo pipefail
@@ -28,7 +28,7 @@ jobs:
           TOK="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
           curl -sS -H "Authorization: bearer $TOK" "${URL}&audience=sts.amazonaws.com" > oidc_response.json
           python3 - <<'PY'
-import json,base64,pathlib
+import json,base64,sys,pathlib
 p=pathlib.Path
 data=json.load(open("oidc_response.json"))
 tok=data.get("value","")
