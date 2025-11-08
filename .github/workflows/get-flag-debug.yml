@@ -19,46 +19,52 @@ jobs:
 
       - name: Print OIDC env
         run: |
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
-          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set? $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo yes || echo no)"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL=${ACTIONS_ID_TOKEN_REQUEST_URL-<unset>}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set? $([ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}" ] && echo yes || echo no)"
 
-      - name: Request OIDC token (no jq) and save files
+      - name: Request OIDC token (safe) and save files
         shell: bash
+        continue-on-error: true
         run: |
-          set -euo pipefail
-          RESP="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                 "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" || true)"
-          printf "%s" "$RESP" > oidc_response.json
-          # parse .value with Python (เลี่ยง jq)
-          python3 - <<'PY' || true
-import json,sys,base64
-from pathlib import Path
-data=json.load(open("oidc_response.json"))
-tok=data.get("value","")
-Path("idtoken.jwt").write_text(tok)
-ok = 0
-parts = tok.split(".")
-if len(parts)==3:
-    import base64, json
-    def b64d(s): s += "=" * (-len(s)%4); return base64.urlsafe_b64decode(s)
-    hdr=json.loads(b64d(parts[0]))
-    pl =json.loads(b64d(parts[1]))
-    Path("payload.json").write_text(json.dumps({"header":hdr,"payload":pl}, indent=2))
-    ok = 1
-print("parsed_ok=", ok)
+          set -eo pipefail
+          : > oidc_response.json
+          : > idtoken.jwt
+          : > payload.json
+          URL="${ACTIONS_ID_TOKEN_REQUEST_URL-}"
+          TOK="${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}"
+          if [ -z "$URL" ] || [ -z "$TOK" ]; then
+            echo "[!] Missing OIDC env; URL='$URL' TOK_len=${#TOK}"
+          else
+            RESP="$(curl -sS -H "Authorization: bearer $TOK" "${URL}&audience=sts.amazonaws.com" || true)"
+            printf "%s" "$RESP" > oidc_response.json
+            python3 - <<'PY' || true
+import json,base64,sys,pathlib
+p = pathlib.Path
+try:
+    data=json.load(open("oidc_response.json"))
+    tok=data.get("value","")
+    p("idtoken.jwt").write_text(tok)
+    parts=tok.split(".")
+    if len(parts)==3:
+        def b64d(s): s+="="*(-len(s)%4); return base64.urlsafe_b64decode(s)
+        hdr=json.loads(b64d(parts[0])); pl=json.loads(b64d(parts[1]))
+        p("payload.json").write_text(json.dumps({"header":hdr,"payload":pl}, indent=2))
+except Exception as e:
+    print("parse_error:", e)
 PY
-          # สรุปไฟล์
+          fi
           echo "== files =="
           ls -l || true
-          echo "idtoken.len=$(wc -c < idtoken.jwt 2>/dev/null || echo 0)"
+          echo "idtoken.len=$( [ -f idtoken.jwt ] && wc -c < idtoken.jwt || echo 0 )"
           echo "payload.head:"
           sed -n '1,80p' payload.json 2>/dev/null || true
 
-      - name: Upload artifact (idtoken + payload + raw resp) ALWAYS
+      - name: Upload artifact (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: oidc-artifacts
+          if-no-files-found: warn
           path: |
             oidc_response.json
             idtoken.jwt
