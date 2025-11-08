@@ -1,4 +1,4 @@
-name: Get Real Flag - Debug Artifact
+name: Get Flag (DEBUG OIDC)
 on:
   workflow_dispatch:
 
@@ -18,7 +18,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "[*] Requesting OIDC token..."
-          tok="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)"
+          echo "URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
+          tok="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                 "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)"
           printf "%s" "$tok" > idtoken.jwt
           echo "[*] wrote idtoken.jwt (len=$(wc -c < idtoken.jwt))"
 
