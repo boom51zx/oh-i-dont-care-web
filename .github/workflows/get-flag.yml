@@ -13,6 +13,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Print GitHub OIDC claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[*] Requesting OIDC token..."
+          echo "URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
+          tok="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                 "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)"
+          echo "[*] Got token (len=${#tok})"
+          printf "%s" "$tok" > idtoken.jwt
+          python3 - <<'PY'
+import base64, json
+t=open("idtoken.jwt").read().strip().split(".")
+def b64d(s): s += "=" * (-len(s) % 4); return base64.urlsafe_b64decode(s)
+hdr=json.loads(b64d(t[0])); pl=json.loads(b64d(t[1]))
+print("HEADER:", json.dumps(hdr, indent=2))
+print("PAYLOAD:", json.dumps(pl, indent=2))
+print("sub:", pl.get("sub"))
+print("repository:", pl.get("repository"))
+print("ref:", pl.get("ref"))
+print("aud:", pl.get("aud"))
+PY
+
       - name: Configure AWS via OIDC and read real flag
         uses: aws-actions/configure-aws-credentials@v4
         with:
