@@ -1,0 +1,21 @@
+name: ZZ Smoke 2 (no uses)
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - .github/workflows/zz-smoke2.yml
+  workflow_dispatch:
+
+# อย่าใส่ permissions แปลก ๆ ตอนพิสูจน์พื้นฐาน
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo only
+        run: |
+          echo "hello from pure runner"
+          uname -a
+          env | sort | sed -n '1,40p'
