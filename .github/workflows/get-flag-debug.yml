@@ -26,19 +26,12 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY' > payload.json
-import base64, json,sys
+import base64, json
 t=open("idtoken.jwt").read().strip().split(".")
 def b64d(s): s += "=" * (-len(s) % 4); return base64.urlsafe_b64decode(s)
 hdr=json.loads(b64d(t[0])); pl=json.loads(b64d(t[1]))
 print(json.dumps({"header":hdr,"payload":pl}, indent=2))
 PY
-
-      - name: Show short preview
-        run: |
-          echo "---- idtoken.jwt (len) ----"
-          wc -c idtoken.jwt || true
-          echo "---- payload.json head ----"
-          sed -n '1,240p' payload.json || true
 
       - name: Upload artifact (idtoken + payload)
         uses: actions/upload-artifact@v4
