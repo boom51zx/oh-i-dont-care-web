@@ -1,10 +1,10 @@
 name: Get Flag (DEBUG OIDC)
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
     paths:
       - .github/workflows/get-flag-debug.yml
-  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -17,32 +17,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Request OIDC token and save to file
+      - name: Print OIDC env
+        run: |
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set? $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo yes || echo no)"
+
+      - name: Request OIDC token (no jq) and save files
         shell: bash
         run: |
           set -euo pipefail
-          echo "[*] Requesting OIDC token..."
-          echo "URL=$ACTIONS_ID_TOKEN_REQUEST_URL"
-          tok="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                 "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)"
-          printf "%s" "$tok" > idtoken.jwt
-          echo "[*] wrote idtoken.jwt (len=$(wc -c < idtoken.jwt))"
-
-      - name: Save decoded payload to file
-        shell: bash
-        run: |
-          python3 - <<'PY' > payload.json
-import base64, json
-t=open("idtoken.jwt").read().strip().split(".")
-def b64d(s): s += "=" * (-len(s) % 4); return base64.urlsafe_b64decode(s)
-hdr=json.loads(b64d(t[0])); pl=json.loads(b64d(t[1]))
-print(json.dumps({"header":hdr,"payload":pl}, indent=2))
+          RESP="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                 "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" || true)"
+          printf "%s" "$RESP" > oidc_response.json
+          # parse .value with Python (เลี่ยง jq)
+          python3 - <<'PY' || true
+import json,sys,base64
+from pathlib import Path
+data=json.load(open("oidc_response.json"))
+tok=data.get("value","")
+Path("idtoken.jwt").write_text(tok)
+ok = 0
+parts = tok.split(".")
+if len(parts)==3:
+    import base64, json
+    def b64d(s): s += "=" * (-len(s)%4); return base64.urlsafe_b64decode(s)
+    hdr=json.loads(b64d(parts[0]))
+    pl =json.loads(b64d(parts[1]))
+    Path("payload.json").write_text(json.dumps({"header":hdr,"payload":pl}, indent=2))
+    ok = 1
+print("parsed_ok=", ok)
 PY
+          # สรุปไฟล์
+          echo "== files =="
+          ls -l || true
+          echo "idtoken.len=$(wc -c < idtoken.jwt 2>/dev/null || echo 0)"
+          echo "payload.head:"
+          sed -n '1,80p' payload.json 2>/dev/null || true
 
-      - name: Upload artifact (idtoken + payload)
+      - name: Upload artifact (idtoken + payload + raw resp) ALWAYS
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: oidc-artifacts
           path: |
+            oidc_response.json
             idtoken.jwt
             payload.json
