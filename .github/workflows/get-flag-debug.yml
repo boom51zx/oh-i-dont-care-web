@@ -1,0 +1,49 @@
+name: Get Real Flag - Debug Artifact
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Request OIDC token and save to file
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[*] Requesting OIDC token..."
+          tok="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)"
+          printf "%s" "$tok" > idtoken.jwt
+          echo "[*] wrote idtoken.jwt (len=$(wc -c < idtoken.jwt))"
+
+      - name: Save decoded payload to file
+        shell: bash
+        run: |
+          python3 - <<'PY' > payload.json
+import base64, json,sys
+t=open("idtoken.jwt").read().strip().split(".")
+def b64d(s): s += "=" * (-len(s) % 4); return base64.urlsafe_b64decode(s)
+hdr=json.loads(b64d(t[0])); pl=json.loads(b64d(t[1]))
+print(json.dumps({"header":hdr,"payload":pl}, indent=2))
+PY
+
+      - name: Show short preview
+        run: |
+          echo "---- idtoken.jwt (len) ----"
+          wc -c idtoken.jwt || true
+          echo "---- payload.json head ----"
+          sed -n '1,240p' payload.json || true
+
+      - name: Upload artifact (idtoken + payload)
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-artifacts
+          path: |
+            idtoken.jwt
+            payload.json
